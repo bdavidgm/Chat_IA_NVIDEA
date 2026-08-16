@@ -10,13 +10,12 @@ import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
+import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
@@ -24,6 +23,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.union
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
@@ -58,6 +58,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -76,7 +77,9 @@ import com.bdavidgm.glm_chat.ui.chat.dialogs.HelpDialog
 import com.bdavidgm.glm_chat.ui.chat.views.FullScreenConfigView
 import androidx.compose.ui.res.stringResource
 import com.bdavidgm.glm_chat.R
+import com.bdavidgm.glm_chat.data.MessageRole
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -92,18 +95,28 @@ fun ChatScreen(
     val snackbarHostState = remember { SnackbarHostState() }
     val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
     val scope = rememberCoroutineScope()
-    
+    var stickToBottom by remember { mutableStateOf(true) }
+
     val isAtBottom by remember {
-        derivedStateOf {
-            val layoutInfo = listState.layoutInfo
-            val visibleItemsInfo = layoutInfo.visibleItemsInfo
-            if (layoutInfo.totalItemsCount == 0) {
-                true
-            } else {
-                val lastVisibleItem = visibleItemsInfo.lastOrNull()
-                lastVisibleItem != null && lastVisibleItem.index >= layoutInfo.totalItemsCount - 1
+        derivedStateOf { listState.isAtBottom() }
+    }
+
+    LaunchedEffect(state.currentThreadId) {
+        stickToBottom = true
+    }
+
+    LaunchedEffect(listState) {
+        snapshotFlow { listState.isScrollInProgress to listState.isAtBottom() }
+            .distinctUntilChanged()
+            .collect { (inProgress, atBottom) ->
+                val info = listState.layoutInfo
+                if (info.totalItemsCount == 0 || info.visibleItemsInfo.isEmpty()) return@collect
+                if (inProgress && !atBottom) {
+                    stickToBottom = false
+                } else if (!inProgress) {
+                    stickToBottom = atBottom
+                }
             }
-        }
     }
 
 
@@ -274,9 +287,9 @@ fun ChatScreen(
                 snackbarHost = { SnackbarHost(snackbarHostState) },
                 containerColor = if (state.config?.showParticles == true) Color.Transparent else MaterialTheme.colorScheme.background,
             ) { padding ->
-                LaunchedEffect(state.messages.size, state.streamingMessage?.content) {
-                    if (isAtBottom) {
-                        listState.scrollToItem(listState.layoutInfo.totalItemsCount)
+                LaunchedEffect(stickToBottom, state.messages.size, state.streamingMessage?.content?.length) {
+                    if (stickToBottom) {
+                        listState.scrollToBottom()
                     }
                 }
 
@@ -308,15 +321,15 @@ fun ChatScreen(
                                         modifier = Modifier.fillMaxSize(),
                                         contentPadding = PaddingValues(bottom = 16.dp),
                                     ) {
-                                        items(allMessages, key = { it.id }) { message ->
+                                        items(
+                                            allMessages,
+                                            key = { it.id },
+                                            contentType = { if (it.role == MessageRole.USER) "user" else "assistant" },
+                                        ) { message ->
                                             MessageBubble(
                                                 message = message,
                                                 onEdit = viewModel::editMessage,
                                             )
-                                        }
-                                        // Elemento de anclaje para asegurar scroll al final absoluto
-                                        item(key = "bottom_anchor") {
-                                            Spacer(modifier = Modifier.height(1.dp))
                                         }
                                     }
 
@@ -331,11 +344,8 @@ fun ChatScreen(
                                     ) {
                                         FloatingActionButton(
                                             onClick = {
-                                                scope.launch {
-                                                    if (listState.layoutInfo.totalItemsCount > 0) {
-                                                        listState.animateScrollToItem(listState.layoutInfo.totalItemsCount - 1)
-                                                    }
-                                                }
+                                                stickToBottom = true
+                                                scope.launch { listState.scrollToBottom() }
                                             },
                                             containerColor = MaterialTheme.colorScheme.primary,
                                             contentColor = Color.Black,
@@ -388,4 +398,22 @@ private fun IsolatedComposerBar(
         selectedFileUri = selectedFileUri,
         modifier = modifier,
     )
+}
+
+private fun LazyListState.isAtBottom(thresholdPx: Int = 120): Boolean {
+    val info = layoutInfo
+    val lastItem = info.visibleItemsInfo.lastOrNull() ?: return false
+    if (lastItem.index < info.totalItemsCount - 1) return false
+    return lastItem.offset + lastItem.size <= info.viewportEndOffset + thresholdPx
+}
+
+private suspend fun LazyListState.scrollToBottom() {
+    val lastIndex = layoutInfo.totalItemsCount - 1
+    if (lastIndex < 0) return
+    scrollToItem(lastIndex)
+    val lastItem = layoutInfo.visibleItemsInfo.lastOrNull() ?: return
+    val overflow = lastItem.offset + lastItem.size - layoutInfo.viewportEndOffset
+    if (overflow > 0) {
+        scrollBy(overflow.toFloat())
+    }
 }
