@@ -24,5 +24,6 @@ data class LocalMessage(
     val timestamp: Long = System.currentTimeMillis(),
     val filePath: String? = null,
     val imageBase64: String? = null,
-    val imageType: String? = null
+    val imageType: String? = null,
+    val model: String? = null,
 )

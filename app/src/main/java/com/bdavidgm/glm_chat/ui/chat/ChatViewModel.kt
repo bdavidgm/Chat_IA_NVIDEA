@@ -34,7 +34,6 @@ data class ChatUiState(
     val threads: List<ChatThread> = emptyList(),
     val messages: List<ChatMessage> = emptyList(),
     val streamingMessage: ChatMessage? = null,
-    val input: String = "",
     val isGenerating: Boolean = false,
     val isImporting: Boolean = false,
     val error: String? = null,
@@ -45,7 +44,6 @@ data class ChatUiState(
     val selectedFileName: String? = null,
     val selectedFileBase64: String? = null,
     val selectedFileType: String? = null,
-    val chatSearchQuery: String = "",
 )
 
 class ChatViewModel(
@@ -59,6 +57,10 @@ class ChatViewModel(
 
     private val _uiState = MutableStateFlow(ChatUiState(config = configStore.load()))
     val uiState: StateFlow<ChatUiState> = _uiState.asStateFlow()
+
+    // Isolated from ChatUiState so keystrokes do not recompose the chat list, sidebar, or markdown.
+    private val _input = MutableStateFlow("")
+    val input: StateFlow<String> = _input.asStateFlow()
 
     private var streamJob: Job? = null
     private var messagesJob: Job? = null
@@ -83,10 +85,6 @@ class ChatViewModel(
 
     fun createNewChat() {
         selectThread(null)
-    }
-
-    fun onChatSearchQueryChange(query: String) {
-        _uiState.update { it.copy(chatSearchQuery = query) }
     }
 
     fun deleteThread(threadId: String) {
@@ -118,10 +116,8 @@ class ChatViewModel(
                     processPdf(uri, name)
                 } else if (type?.startsWith("text/") == true) {
                     val text = contentResolver.openInputStream(uri)?.bufferedReader()?.use { it.readText() }
-                    text?.let {
-                        _uiState.update { state ->
-                            state.copy(input = state.input + "\n" + it)
-                        }
+                    text?.let { fileText ->
+                        _input.update { current -> current + "\n" + fileText }
                     }
                 } else {
                     _uiState.update { it.copy(selectedFileUri = uri, selectedFileName = name, selectedFileType = type) }
@@ -191,7 +187,7 @@ class ChatViewModel(
     }
 
     fun onInputChange(value: String) {
-        _uiState.update { it.copy(input = value, error = null) }
+        _input.value = value
     }
 
     fun editMessage(messageId: String, newContent: String) {
@@ -204,8 +200,8 @@ class ChatViewModel(
             val index = messages.indexOfFirst { it.id == messageId }
             if (index != -1 && messages[index].role == MessageRole.USER) {
                 // Si es el último mensaje del usuario, o queremos re-procesar
-                _uiState.update { it.copy(input = newContent) }
-                sendMessage() // Esto creará un nuevo ciclo de envío
+                _input.value = newContent
+                sendMessage()
             }
         }
     }
@@ -223,6 +219,7 @@ class ChatViewModel(
         streamJob?.cancel()
         configStore.clear()
         val application = getApplication<Application>()
+        _input.value = ""
         _uiState.value = ChatUiState(info = application.getString(R.string.info_config_deleted))
     }
 
@@ -261,7 +258,7 @@ class ChatViewModel(
     }
 
     fun sendMessage() {
-        val text = _uiState.value.input.trim()
+        val text = _input.value.trim()
         val config = _uiState.value.config
         if (text.isEmpty() || _uiState.value.isGenerating) return
         if (config == null) {
@@ -303,25 +300,26 @@ class ChatViewModel(
             )
 
             val assistantId = UUID.randomUUID().toString()
+            val assistantModel = config.model
             val assistantPlaceholder = ChatMessage(
                 id = assistantId,
                 role = MessageRole.ASSISTANT,
                 content = "",
                 isStreaming = true,
+                model = assistantModel,
             )
 
-            // Limpiar input y archivo, y poner el placeholder en streamingMessage
-            _uiState.update { 
+            _input.value = ""
+            _uiState.update {
                 it.copy(
-                    input = "", 
-                    selectedFileUri = null, 
+                    selectedFileUri = null,
                     selectedFileName = null,
                     selectedFileBase64 = null,
                     selectedFileType = null,
                     isGenerating = true,
                     streamingMessage = assistantPlaceholder,
-                    error = null 
-                ) 
+                    error = null,
+                )
             }
 
             // Usamos la lista actual de mensajes + el nuevo mensaje de usuario para la API
@@ -351,7 +349,8 @@ class ChatViewModel(
                             id = assistantId,
                             threadId = threadId,
                             role = MessageRole.ASSISTANT,
-                            content = fullContent
+                            content = fullContent,
+                            model = assistantModel,
                         )
                     )
                     // Actualizar timestamp del thread
@@ -364,7 +363,8 @@ class ChatViewModel(
                         id = assistantId,
                         role = MessageRole.ASSISTANT,
                         content = fullContent,
-                        isStreaming = false
+                        isStreaming = false,
+                        model = assistantModel,
                     )
                     _uiState.update { state ->
                         state.copy(
@@ -394,11 +394,12 @@ class ChatViewModel(
             chatDao.getMessagesForThread(threadId).collect { localMessages ->
                 val chatMessages = localMessages.map { 
                     ChatMessage(
-                        id = it.id, 
-                        role = it.role, 
+                        id = it.id,
+                        role = it.role,
                         content = it.content,
                         imageBase64 = it.imageBase64,
-                        imageType = it.imageType
+                        imageType = it.imageType,
+                        model = it.model,
                     ) 
                 }
                 _uiState.update { it.copy(messages = chatMessages) }

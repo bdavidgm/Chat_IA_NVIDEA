@@ -76,6 +76,7 @@ import com.bdavidgm.glm_chat.ui.chat.dialogs.HelpDialog
 import com.bdavidgm.glm_chat.ui.chat.views.FullScreenConfigView
 import androidx.compose.ui.res.stringResource
 import com.bdavidgm.glm_chat.R
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -182,8 +183,6 @@ fun ChatScreen(
                 SidebarContent(
                     threads = state.threads,
                     currentThreadId = state.currentThreadId,
-                    searchQuery = state.chatSearchQuery,
-                    onSearchQueryChange = viewModel::onChatSearchQueryChange,
                     onThreadSelected = { 
                         viewModel.selectThread(it)
                         scope.launch { drawerState.close() }
@@ -258,8 +257,8 @@ fun ChatScreen(
                 },
                 bottomBar = {
                     if (state.config != null) {
-                        ComposerBar(
-                            value = state.input,
+                        IsolatedComposerBar(
+                            input = viewModel.input,
                             isGenerating = state.isGenerating,
                             onValueChange = viewModel::onInputChange,
                             onSend = viewModel::sendMessage,
@@ -275,7 +274,7 @@ fun ChatScreen(
                 snackbarHost = { SnackbarHost(snackbarHostState) },
                 containerColor = if (state.config?.showParticles == true) Color.Transparent else MaterialTheme.colorScheme.background,
             ) { padding ->
-                LaunchedEffect(state.messages.size, state.streamingMessage?.content, padding.calculateBottomPadding()) {
+                LaunchedEffect(state.messages.size, state.streamingMessage?.content) {
                     if (isAtBottom) {
                         listState.scrollToItem(listState.layoutInfo.totalItemsCount)
                     }
@@ -312,8 +311,7 @@ fun ChatScreen(
                                         items(allMessages, key = { it.id }) { message ->
                                             MessageBubble(
                                                 message = message,
-                                                modelName = state.config?.model ?: stringResource(R.string.assistant_label),
-                                                onEdit = { viewModel.editMessage(message.id, it) }
+                                                onEdit = viewModel::editMessage,
                                             )
                                         }
                                         // Elemento de anclaje para asegurar scroll al final absoluto
@@ -366,4 +364,28 @@ fun ChatScreen(
             }
         }
     }
+}
+
+@Composable
+private fun IsolatedComposerBar(
+    input: StateFlow<String>,
+    isGenerating: Boolean,
+    onValueChange: (String) -> Unit,
+    onSend: () -> Unit,
+    onAttachFile: () -> Unit,
+    selectedFileName: String?,
+    selectedFileUri: android.net.Uri?,
+    modifier: Modifier = Modifier,
+) {
+    val value by input.collectAsState()
+    ComposerBar(
+        value = value,
+        isGenerating = isGenerating,
+        onValueChange = onValueChange,
+        onSend = onSend,
+        onAttachFile = onAttachFile,
+        selectedFileName = selectedFileName,
+        selectedFileUri = selectedFileUri,
+        modifier = modifier,
+    )
 }

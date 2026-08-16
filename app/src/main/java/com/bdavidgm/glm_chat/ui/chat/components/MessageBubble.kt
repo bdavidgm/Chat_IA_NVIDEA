@@ -29,15 +29,17 @@ import com.mikepenz.markdown.m3.markdownTypography
 
 @Composable
 fun MessageBubble(
-    message: ChatMessage, 
-    modelName: String,
-    onEdit: (String) -> Unit
+    message: ChatMessage,
+    onEdit: (messageId: String, newContent: String) -> Unit,
 ) {
     val isUser = message.role == MessageRole.USER
     val alignment = if (isUser) Alignment.End else Alignment.Start
     val bubbleColor = if (isUser) Color(0xFF424242) else Color(0xFF3C5E00)
     val contentColor = Color.White
-    val modelLabel = modelName.substringAfterLast('/').uppercase()
+    val fallbackLabel = stringResource(R.string.assistant_label)
+    val modelLabel = (message.model?.takeIf { it.isNotBlank() } ?: fallbackLabel)
+        .substringAfterLast('/')
+        .uppercase()
     val clipboardManager = LocalClipboardManager.current
     var isEditing by remember { mutableStateOf(false) }
     var editValue by remember { mutableStateOf(message.content) }
@@ -140,7 +142,7 @@ fun MessageBubble(
                             Row(horizontalArrangement = Arrangement.End, modifier = Modifier.fillMaxWidth()) {
                                 TextButton(onClick = { isEditing = false }) { Text(stringResource(R.string.cancel)) }
                                 TextButton(onClick = { 
-                                    onEdit(editValue)
+                                    onEdit(message.id, editValue)
                                     isEditing = false 
                                 }) { Text(stringResource(R.string.send)) }
                             }

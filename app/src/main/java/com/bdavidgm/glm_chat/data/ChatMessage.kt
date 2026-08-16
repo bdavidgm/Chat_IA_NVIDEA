@@ -1,6 +1,7 @@
 package com.bdavidgm.glm_chat.data
 
 import androidx.annotation.Keep
+import androidx.compose.runtime.Immutable
 
 enum class MessageRole(val apiValue: String) {
     USER("user"),
@@ -9,6 +10,7 @@ enum class MessageRole(val apiValue: String) {
 }
 
 @Keep
+@Immutable
 data class ChatMessage(
     val id: String,
     val role: MessageRole,
@@ -16,4 +18,5 @@ data class ChatMessage(
     val isStreaming: Boolean = false,
     val imageBase64: String? = null,
     val imageType: String? = null,
+    val model: String? = null,
 )

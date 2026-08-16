@@ -13,7 +13,10 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -29,13 +32,12 @@ import com.bdavidgm.glm_chat.data.local.ChatThread
 fun SidebarContent(
     threads: List<ChatThread>,
     currentThreadId: String?,
-    searchQuery: String,
-    onSearchQueryChange: (String) -> Unit,
     onThreadSelected: (String) -> Unit,
     onDeleteThread: (String) -> Unit,
     onNewChat: () -> Unit,
     onOpenSettings: () -> Unit
 ) {
+    var searchQuery by remember { mutableStateOf("") }
     val filteredThreads = remember(threads, searchQuery) {
         threads.filter { it.title.contains(searchQuery, ignoreCase = true) }
     }
@@ -102,7 +104,7 @@ fun SidebarContent(
             
             OutlinedTextField(
                 value = searchQuery,
-                onValueChange = onSearchQueryChange,
+                onValueChange = { searchQuery = it },
                 placeholder = { Text(stringResource(R.string.search_conversations), color = Color.Gray) },
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(12.dp),
