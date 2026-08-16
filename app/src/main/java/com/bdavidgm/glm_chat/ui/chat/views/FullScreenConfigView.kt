@@ -19,6 +19,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.res.stringResource
 import com.bdavidgm.glm_chat.R
 import com.bdavidgm.glm_chat.data.ApiConfig
+import com.bdavidgm.glm_chat.data.ModelProbeResult
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -29,7 +30,8 @@ fun FullScreenConfigView(
     onDismiss: () -> Unit,
     onSave: (ApiConfig) -> Unit,
     onReset: () -> Unit,
-    onLoadModels: () -> Unit,
+    onLoadModels: (ApiConfig) -> Unit,
+    onProbeModel: (config: ApiConfig, modelId: String, onResult: (ModelProbeResult) -> Unit) -> Unit,
 ) {
     var baseUrl by remember { mutableStateOf(config.baseUrl) }
     var chatPath by remember { mutableStateOf(config.chatPath) }
@@ -44,8 +46,46 @@ fun FullScreenConfigView(
 
     var modelMenuExpanded by remember { mutableStateOf(false) }
     var modelFilter by remember { mutableStateOf("") }
+    var isProbing by remember { mutableStateOf(false) }
+    var probingModelId by remember { mutableStateOf<String?>(null) }
+    var probeMessage by remember { mutableStateOf<String?>(null) }
     val filteredModels = remember(availableModels, modelFilter) {
         availableModels.filter { it.contains(modelFilter, ignoreCase = true) }
+    }
+
+    fun draftConfig(selectedModel: String = model) = config.copy(
+        baseUrl = baseUrl,
+        chatPath = chatPath,
+        apiKey = apiKey,
+        model = selectedModel,
+        temperature = temperature.toDoubleOrNull() ?: config.temperature,
+        topP = topP.toDoubleOrNull() ?: config.topP,
+        maxTokens = maxTokens.toIntOrNull() ?: config.maxTokens,
+        seed = seed.toIntOrNull() ?: config.seed,
+        stream = stream,
+        showParticles = showParticles,
+    )
+
+    val probeUnavailable = stringResource(R.string.error_model_unavailable)
+    val probeUnreachable = stringResource(R.string.error_model_unreachable)
+
+    fun probeAndThen(modelId: String, onAvailable: () -> Unit) {
+        if (isProbing) return
+        isProbing = true
+        probingModelId = modelId
+        probeMessage = null
+        onProbeModel(draftConfig(modelId), modelId) { result ->
+            isProbing = false
+            probingModelId = null
+            when (result) {
+                ModelProbeResult.Available -> {
+                    probeMessage = null
+                    onAvailable()
+                }
+                ModelProbeResult.Unavailable -> probeMessage = probeUnavailable
+                ModelProbeResult.Unreachable -> probeMessage = probeUnreachable
+            }
+        }
     }
 
     Scaffold(
@@ -90,9 +130,9 @@ fun FullScreenConfigView(
                     trailingIcon = {
                         IconButton(onClick = {
                             modelMenuExpanded = true
-                            onLoadModels()
+                            onLoadModels(draftConfig())
                         }) {
-                            if (isFetchingModels) {
+                            if (isFetchingModels || isProbing) {
                                 CircularProgressIndicator(modifier = Modifier.size(24.dp))
                             } else {
                                 Icon(Icons.Default.ArrowDropDown, contentDescription = null)
@@ -102,11 +142,11 @@ fun FullScreenConfigView(
                 )
                 Box(modifier = Modifier.matchParentSize().clickable {
                     modelMenuExpanded = true
-                    onLoadModels()
+                    onLoadModels(draftConfig())
                 })
                 DropdownMenu(
                     expanded = modelMenuExpanded,
-                    onDismissRequest = { modelMenuExpanded = false },
+                    onDismissRequest = { if (!isProbing) modelMenuExpanded = false },
                     modifier = Modifier.fillMaxWidth(0.8f).height(400.dp),
                 ) {
                     OutlinedTextField(
@@ -115,17 +155,44 @@ fun FullScreenConfigView(
                         placeholder = { Text(stringResource(R.string.search_model_placeholder)) },
                         modifier = Modifier.padding(8.dp).fillMaxWidth(),
                         singleLine = true,
+                        enabled = !isProbing,
                     )
+                    if (isProbing) {
+                        Text(
+                            text = stringResource(R.string.probing_model),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = Color.Gray,
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                        )
+                    }
                     filteredModels.take(50).forEach { m ->
                         DropdownMenuItem(
                             text = { Text(m) },
+                            enabled = !isProbing,
+                            trailingIcon = if (probingModelId == m) {
+                                {
+                                    CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+                                }
+                            } else {
+                                null
+                            },
                             onClick = {
-                                model = m
-                                modelMenuExpanded = false
+                                probeAndThen(m) {
+                                    model = m
+                                    modelMenuExpanded = false
+                                }
                             },
                         )
                     }
                 }
+            }
+
+            if (probeMessage != null) {
+                Text(
+                    text = probeMessage!!,
+                    color = Color(0xFFE34234),
+                    style = MaterialTheme.typography.bodySmall,
+                )
             }
 
             OutlinedTextField(
@@ -182,21 +249,11 @@ fun FullScreenConfigView(
             ) {
                 OutlinedButton(
                     onClick = {
-                        onSave(
-                            config.copy(
-                                baseUrl = baseUrl,
-                                chatPath = chatPath,
-                                apiKey = apiKey,
-                                model = model,
-                                temperature = temperature.toDoubleOrNull() ?: config.temperature,
-                                topP = topP.toDoubleOrNull() ?: config.topP,
-                                maxTokens = maxTokens.toIntOrNull() ?: config.maxTokens,
-                                seed = seed.toIntOrNull() ?: config.seed,
-                                stream = stream,
-                                showParticles = showParticles,
-                            )
-                        )
+                        probeAndThen(model) {
+                            onSave(draftConfig(model))
+                        }
                     },
+                    enabled = !isProbing,
                     modifier = Modifier.weight(1f).height(48.dp),
                     shape = androidx.compose.foundation.shape.RoundedCornerShape(12.dp),
                     border = BorderStroke(1.dp, Color(0xFF76B900).copy(alpha = 0.5f)),

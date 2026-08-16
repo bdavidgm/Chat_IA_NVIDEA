@@ -37,6 +37,9 @@
     <string name="particle_background">Fondo de Partículas</string>
     <string name="neural_network_effect">Efecto red neuronal (Experimental)</string>
     <string name="search_model_placeholder">Buscar modelo...</string>
+    <string name="probing_model">Comprobando si el modelo responde…</string>
+    <string name="error_model_unavailable">Este modelo no está disponible con tu API key</string>
+    <string name="error_model_unreachable">No se pudo comprobar el modelo. Revisa la conexión e inténtalo de nuevo.</string>
     <string name="back">Atrás</string>
 
     <!-- Dialogs -->

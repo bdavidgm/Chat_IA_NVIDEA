@@ -183,7 +183,8 @@ fun ChatScreen(
                 viewModel.clearConfig()
                 showConfigDialog = false
             },
-            onLoadModels = viewModel::loadAvailableModels,
+            onLoadModels = { viewModel.loadAvailableModels(it) },
+            onProbeModel = viewModel::probeModel,
         )
     } else {
         if (state.config == null && !state.isImporting) {

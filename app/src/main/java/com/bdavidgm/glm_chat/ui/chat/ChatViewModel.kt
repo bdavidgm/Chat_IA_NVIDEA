@@ -14,6 +14,7 @@ import com.bdavidgm.glm_chat.data.ApiConfig
 import com.bdavidgm.glm_chat.data.ApiConfigStore
 import com.bdavidgm.glm_chat.data.ChatMessage
 import com.bdavidgm.glm_chat.data.MessageRole
+import com.bdavidgm.glm_chat.data.ModelProbeResult
 import com.bdavidgm.glm_chat.data.NvidiaChatClient
 import com.bdavidgm.glm_chat.data.local.ChatDatabase
 import com.bdavidgm.glm_chat.data.local.ChatThread
@@ -63,6 +64,7 @@ class ChatViewModel(
     val input: StateFlow<String> = _input.asStateFlow()
 
     private var streamJob: Job? = null
+    private var probeJob: Job? = null
     private var messagesJob: Job? = null
 
     init {
@@ -236,8 +238,8 @@ class ChatViewModel(
         _uiState.update { it.copy(config = config, info = application.getString(R.string.info_config_updated)) }
     }
 
-    fun loadAvailableModels() {
-        val config = _uiState.value.config ?: return
+    fun loadAvailableModels(configOverride: ApiConfig? = null) {
+        val config = configOverride ?: _uiState.value.config ?: return
         if (_uiState.value.isFetchingModels) return
 
         viewModelScope.launch {
@@ -253,6 +255,22 @@ class ChatViewModel(
                         error = application.getString(R.string.error_load_models, e.message),
                     )
                 }
+            }
+        }
+    }
+
+    fun probeModel(
+        config: ApiConfig,
+        modelId: String,
+        onResult: (ModelProbeResult) -> Unit,
+    ) {
+        probeJob?.cancel()
+        probeJob = viewModelScope.launch {
+            try {
+                val result = chatClient.probeChatModel(config, modelId)
+                onResult(result)
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
             }
         }
     }

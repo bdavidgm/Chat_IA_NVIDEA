@@ -103,6 +103,51 @@ class NvidiaChatClient(
         }
     }
 
+    /**
+     * Cheap /chat/completions call to see if [modelId] works with this API key.
+     * 200 and 429 count as available; 401/403/404 mean the key cannot use it.
+     */
+    suspend fun probeChatModel(config: ApiConfig, modelId: String): ModelProbeResult =
+        withContext(Dispatchers.IO) {
+            val body = JSONObject()
+                .put("model", modelId)
+                .put(
+                    "messages",
+                    JSONArray().put(
+                        JSONObject().put("role", "user").put("content", "ok"),
+                    ),
+                )
+                .put("max_tokens", 1)
+                .put("stream", false)
+                .toString()
+
+            val request = Request.Builder()
+                .url(config.chatCompletionsUrl())
+                .addHeader("Authorization", "Bearer ${config.apiKey}")
+                .addHeader("Accept", "application/json")
+                .addHeader("Content-Type", "application/json")
+                .post(body.toRequestBody(JSON_MEDIA_TYPE))
+                .build()
+
+            val probeClient = client.newBuilder()
+                .readTimeout(15, TimeUnit.SECONDS)
+                .writeTimeout(15, TimeUnit.SECONDS)
+                .callTimeout(20, TimeUnit.SECONDS)
+                .build()
+
+            try {
+                probeClient.newCall(request).execute().use { response ->
+                    when (response.code) {
+                        200, 429 -> ModelProbeResult.Available
+                        400, 401, 402, 403, 404, 422 -> ModelProbeResult.Unavailable
+                        else -> ModelProbeResult.Unreachable
+                    }
+                }
+            } catch (_: Exception) {
+                ModelProbeResult.Unreachable
+            }
+        }
+
     private fun buildRequestBody(config: ApiConfig, messages: List<ChatMessage>, useStream: Boolean): String {
         val messagesArray = JSONArray()
         messages.forEach { message ->
